@@ -14,7 +14,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from .schema import primary_type
+from .schema import allows_null, primary_type
 
 NULL_WORDS = frozenset({"", "null", "none", "n/a", "na", "-", "--", "–", "—"})
 _TRUE = frozenset({"yes", "y", "true", "t", "1", "x", "[x]", "(x)", "☒", "☑",
@@ -203,9 +203,19 @@ def coerce(node: Mapping[str, Any], value: Any, date_order: str = "MDY") -> Any:
         items = value if isinstance(value, list) else [value]
         return [coerce(node["items"], item, date_order) for item in items]
     if kind == "object" and isinstance(value, Mapping):
-        props = node["properties"]
-        return {key: coerce(props[key], item, date_order) for key, item in value.items()
-                if key in props}
+        props, required = node["properties"], set(node.get("required", []))
+        out = {}
+        for key, item in value.items():
+            if key not in props:
+                continue
+            child = coerce(props[key], item, date_order)
+            if child is None and key not in required and not allows_null(props[key]):
+                # Strict structured output makes every property required and the optional ones
+                # nullable, so a model must send "sku": null for a line without one. An empty
+                # optional property is absent, as it is for a top-level field.
+                continue
+            out[key] = child
+        return out
     return value
 
 

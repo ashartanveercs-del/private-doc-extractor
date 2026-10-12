@@ -99,6 +99,19 @@ def test_nested_objects_drop_unknown_keys_and_coerce_children():
         {"description": "Desk lamp", "amount": 25.0}]
 
 
+def test_an_empty_optional_nested_property_is_absent_rather_than_null():
+    # strict structured output makes every property required and the optional ones nullable,
+    # so a model has to send "sku": null for a line without a SKU
+    item = {"type": "object", "required": ["name"], "properties": {
+        "name": TEXT, "sku": TEXT, "note": {"type": ["string", "null"]}}}
+    schema = {"type": "array", "items": item}
+    assert coerce(schema, [{"name": "Desk lamp", "sku": None, "note": None}]) == [
+        {"name": "Desk lamp", "note": None}]  # null stays where the schema allows it
+    assert coerce(schema, [{"name": "Desk lamp", "sku": "n/a"}]) == [{"name": "Desk lamp"}]
+    # a required property keeps its null, so the validator still reports it
+    assert coerce(schema, [{"name": None}]) == [{"name": None}]
+
+
 @pytest.mark.parametrize("text", [
     '{"a": 1}',
     '```json\n{"a": 1}\n```',

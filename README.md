@@ -6,7 +6,7 @@ own cloud account, or nowhere at all.
 
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-540%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-542%20passed-brightgreen)
 
 ```text
 $ privdoc extract receipt.pdf --schema receipt --tier local        # page 1 typed, page 2 scanned
@@ -46,7 +46,7 @@ the document", and nothing left the machine (exit code 1: read, but incomplete).
 | **Content-addressed cache** | Keys hash the document, the page, the engine's fingerprint, the schema and the prompt version; failed readings are never cached. |
 | **SSRF-safe links** | DNS is resolved once and the connection pinned to the checked address; every redirect hop is re-checked; IPv4 hidden in IPv6 and numeric host tricks are refused; size, time and content type are capped. |
 | **Benchmark** | Synthetic invoices, receipts and tax forms generated in code in five renderings (typed, scanned, searchable scan, mixed, phone photo), plus an optional FUNSD download. Reports field accuracy, hallucination rate, cost and seconds per page. |
-| **Tested offline** | 540 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
+| **Tested offline** | 542 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
 
 ## Architecture
 
@@ -295,7 +295,7 @@ cloud model depend on the model and its price, so measure them with your own key
 ## Testing
 
 ```bash
-pytest                  # 540 passed, 4 skipped in 20-35 s; no network, no keys
+pytest                  # 542 passed, 4 skipped in 20-35 s; no network, no keys
 ruff check src tests scripts examples
 pytest -m tesseract     # the real Tesseract binary (skipped when it is not installed)
 ```

@@ -9,7 +9,7 @@ from privdoc.errors import PrivacyViolation, UsageError
 from privdoc.fetch import Fetched
 from privdoc.pipeline import ExtractOptions, Pipeline
 from privdoc.privacy import Tier
-from privdoc.schema import load_schema
+from privdoc.schema import DocSchema, load_schema
 from privdoc.synth import PdfPage, TextRun, make_doc, render, write_pdf
 from tests.fakes import FakeLLM, FakeTesseract, FakeTransport, fval
 from tests.oracle import oracle_fields, oracle_page, page_texts
@@ -313,6 +313,34 @@ def test_a_value_that_is_not_on_the_page_is_re_checked_by_the_stronger_model():
     assert [(c.model, c.pages) for c in llm.calls] == [("small", [1, 2]), ("large", [1])]
     number = result.fields["invoice_number"]
     assert (number.value, number.source) == (doc.truth["invoice_number"], "text-llm:large")
+
+
+ORDER = DocSchema({"type": "object", "required": ["order_number"], "properties": {
+    "order_number": {"type": "string", "x-labels": ["Order #"]},
+    "items": {"type": "array", "items": {
+        "type": "object", "required": ["name", "quantity"], "properties": {
+            "name": {"type": "string"}, "quantity": {"type": "integer"},
+            "sku": {"type": "string"}}}}}})
+
+
+def test_an_optional_nested_property_the_model_sends_as_null_is_absent_not_invalid():
+    lines = ["Order #: PO-3301", "Desk lamp 2", "USB-C cable 3 SKU C-77"]
+    data = write_pdf([PdfPage(runs=[TextRun(72, 100 + 20 * i, line)
+                                    for i, line in enumerate(lines)])])
+    items = [{"name": "Desk lamp", "quantity": 2, "sku": None},
+             {"name": "USB-C cable", "quantity": 3, "sku": "C-77"}]
+    llm = FakeLLM(fields=lambda model, pages, text: {"fields": {
+        "order_number": fval("PO-3301", evidence="Order #: PO-3301", page=1),
+        "items": fval(items, evidence="Desk lamp 2", page=1)}})
+    p, transport = pipeline(LLM_ENV, llm=llm)
+    result = p.extract(data, ORDER, CLOUD)
+    request = transport.requests[0].body["response_format"]["json_schema"]["schema"]
+    item = request["properties"]["fields"]["properties"]["items"]["properties"]["value"]["items"]
+    assert item["properties"]["sku"]["type"] == ["string", "null"]  # strict form forces null
+    assert result.fields["items"].status == "found" and result.valid
+    assert result.data["items"] == [{"name": "Desk lamp", "quantity": 2},
+                                    {"name": "USB-C cable", "quantity": 3, "sku": "C-77"}]
+    assert [c.kind for c in llm.calls] == ["document_fields"]  # no repair, no escalation
 
 
 def test_a_failed_text_extraction_falls_back_to_the_rule_extractor():
