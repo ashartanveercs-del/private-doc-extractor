@@ -42,7 +42,7 @@ the document", and nothing left the machine (exit code 1: read, but incomplete).
 | **Schema-strict JSON** | A JSON Schema subset that is enforced completely: an unsupported keyword is refused, not ignored. Model output is coerced, validated, repaired once, and only valid values ever reach `data`. |
 | **Honest field statuses** | `found`, `unreadable` (with what could be made out), `invalid` (with the raw value), `not_found` (every page was read) and `not_checked` (some pages were not). |
 | **Grounding** | A value must be traceable to verbatim text on its page, as whole words (a fragment of a longer word does not count). Ungrounded values are downgraded to low confidence and re-checked. |
-| **Per-page escalation** | Only failed or doubtful pages are re-read by the next, stronger engine (a larger model, or Tesseract at 400 dpi on a cleaned image). The merge never turns something seen into "not on the document". |
+| **Per-page escalation** | Only failed or doubtful pages are re-read by the next, stronger engine (a larger model, or Tesseract at 400 dpi on a cleaned image). The merge never turns something seen into "not on the document", and never trades a trusted value for a less trusted one. |
 | **Content-addressed cache** | Keys hash the document, the page, the engine's fingerprint, the schema and the prompt version; failed readings are never cached. |
 | **SSRF-safe links** | DNS is resolved once and the connection pinned to the checked address; every redirect hop is re-checked; IPv4 hidden in IPv6 and numeric host tricks are refused; size, time and content type are capped. |
 | **Benchmark** | Synthetic invoices (their line-item columns printed in varied orders), receipts and tax forms generated in code in five renderings (typed, scanned, searchable scan, mixed, phone photo), plus an optional FUNSD download. Reports field accuracy, hallucination rate, cost and seconds per page. |
@@ -169,7 +169,8 @@ its magic bytes.
 you do not check is worse than no validation. The schema module accepts a subset it enforces
 completely, closes every object, and generates the strict form that structured-output APIs need
 (every property required, optional values nullable, validation keywords moved into
-descriptions), then enforces those keywords itself on the way back. Repair is a ladder:
+descriptions), then enforces those keywords itself on the way back; an optional property the
+model had to send as `null` is read as absent, at any depth. Repair is a ladder:
 deterministic coercion first ("$1,250.00", "Yes", "March 14, 2026"), then one model repair round
 listing the exact JSON paths that failed, then the value is reported as `invalid` and kept out of
 `data`.
