@@ -6,7 +6,7 @@ own cloud account, or nowhere at all.
 
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-609%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-612%20passed-brightgreen)
 
 ```text
 $ privdoc extract receipt.pdf --schema receipt --tier local        # page 1 typed, page 2 scanned
@@ -46,7 +46,7 @@ the document", and nothing left the machine (exit code 1: read, but incomplete).
 | **Content-addressed cache** | Keys hash the document, the page, the engine's fingerprint, the schema and the prompt version; failed readings are never cached. |
 | **SSRF-safe links** | DNS is resolved once and the connection pinned to the checked address; every redirect hop is re-checked; IPv4 hidden in IPv6 and numeric host tricks are refused; size, time and content type are capped. |
 | **Benchmark** | Synthetic invoices (their line-item columns printed in varied orders), receipts and tax forms generated in code in five renderings (typed, scanned, searchable scan, mixed, phone photo), plus an optional FUNSD download. Reports field accuracy, hallucination rate, cost and seconds per page. |
-| **Tested offline** | 609 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
+| **Tested offline** | 612 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
 
 ## Architecture
 
@@ -160,8 +160,10 @@ Redirects are followed by hand and every hop is checked again. Numeric shorthand
 `2130706433` and `0x7f.1` are refused instead of being left to a parser to interpret.
 Credentials in URLs, backslashes and control characters are refused; proxies are not used;
 compressed bodies are refused rather than inflated; the size cap holds even without a
-Content-Length; a trickling server hits an overall deadline; and the body must really be a
-supported document whose declared type agrees with its magic bytes.
+Content-Length; a server that trickles bytes hits one overall deadline, because every socket
+read and write may only wait for the time that is left (status line, headers, chunk sizes and
+body alike); and the body must really be a supported document whose declared type agrees with
+its magic bytes.
 
 **7. Strict means refusing what you cannot enforce.** Silently ignoring `oneOf` or a `format`
 you do not check is worse than no validation. The schema module accepts a subset it enforces
@@ -318,7 +320,7 @@ they depend on the model and its price, so measure them with your own key.
 ## Testing
 
 ```bash
-pytest                  # 609 passed, 4 skipped in 20-35 s; no network, no keys
+pytest                  # 612 passed, 4 skipped in 20-35 s; no network, no keys
 ruff check src tests scripts examples
 pytest -m tesseract     # the real Tesseract binary (skipped when it is not installed)
 ```
@@ -331,7 +333,8 @@ pytest -m tesseract     # the real Tesseract binary (skipped when it is not inst
   DNS, so a test that touches the internet fails. `no_network_at_all` also blocks loopback and
   records every attempt, for the local-tier tests.
 - The SSRF guard and the HTTP transport are also tested against a real server on 127.0.0.1
-  (pinning, redirects into link-local space, a chunked body past the cap).
+  (pinning, redirects into link-local space, a chunked body past the cap, a server that
+  trickles its headers, chunk sizes or body one byte at a time).
 - The 4 skipped tests need POSIX file permissions or the Tesseract binary; CI on Linux covers
   the first, and the `ocr` job covers the second.
 

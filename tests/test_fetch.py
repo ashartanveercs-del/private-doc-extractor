@@ -1,11 +1,12 @@
 import ipaddress
+import time
 from dataclasses import dataclass, field
 
 import pytest
 
 from privdoc.errors import FetchError, UnsafeURL
 from privdoc.fetch import FetchPolicy, OpenRequest, SafeFetcher, is_public_address
-from tests.localserver import LocalServer, chunked, reply
+from tests.localserver import LocalServer, chunked, reply, trickle
 
 PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 PUBLIC = "93.184.215.14"  # example.com-style global addresses; nothing ever connects to them
@@ -303,6 +304,32 @@ def test_real_redirect_into_link_local_space_is_refused(server):
     with pytest.raises(UnsafeURL):
         fetcher.fetch(server.url("/go"))
     assert [s.path for s in server.seen] == ["/go"]
+
+
+TRICKLES = {
+    # a body that keeps coming, one byte at a time, under its declared length
+    "body": (b"HTTP/1.0 200 OK\r\nContent-Type: application/pdf\r\nContent-Length: %d\r\n\r\n"
+             % len(PDF) + PDF[:9], PDF[9:]),
+    # headers that never finish
+    "headers": (b"HTTP/1.0 200 OK\r\nContent-Type: application/pdf\r\nX-Padding: ", b"x" * 40),
+    # a chunked body whose chunk-size line never ends
+    "chunk size": (b"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\n"
+                   b"Transfer-Encoding: chunked\r\n\r\n", b"0" * 40),
+}
+
+
+@pytest.mark.parametrize("part", list(TRICKLES))
+def test_real_trickling_server_is_stopped_at_the_overall_deadline(server, part):
+    head, drip = TRICKLES[part]
+    server.routes["/slow.pdf"] = trickle(head, drip, every=0.15, stop=server.stopping)
+    policy = FetchPolicy(timeout=0.5, allowed_ports=None,
+                         allowed_networks=(ipaddress.ip_network("127.0.0.1/32"),))
+    started = time.monotonic()
+    with pytest.raises(FetchError, match="timed out"):
+        SafeFetcher(policy).fetch(server.url("/slow.pdf"))
+    # every byte arrives well within a single read's timeout, so only the overall deadline (not
+    # the 0.15 s x 40 bytes = 6 s it would take to trickle everything) can end the download
+    assert time.monotonic() - started < 2.5
 
 
 def test_real_chunked_download_is_cut_at_the_cap(server):

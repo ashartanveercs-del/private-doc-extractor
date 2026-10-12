@@ -23,6 +23,7 @@ class LocalServer:
     def __init__(self) -> None:
         self.routes: dict[str, Route] = {}
         self.seen: list[Seen] = []
+        self.stopping = threading.Event()  # tells slow routes to give up when the test ends
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -53,6 +54,7 @@ class LocalServer:
         return f"http://127.0.0.1:{self.port}{path}"
 
     def stop(self) -> None:
+        self.stopping.set()
         self._httpd.shutdown()
         self._httpd.server_close()
         self._thread.join(timeout=5)
@@ -67,6 +69,24 @@ def reply(status: int, body: bytes = b"", headers: dict[str, str] | None = None)
             handler.send_header("Content-Length", str(len(body)))
         handler.end_headers()
         handler.wfile.write(body)
+
+    return route
+
+
+def trickle(head: bytes, drip: bytes, every: float, stop: threading.Event) -> Route:
+    """Sends `head` at once, then `drip` one byte every `every` seconds: each byte arrives well
+    within any per-read timeout, so only an overall deadline can stop the download."""
+
+    def route(handler: BaseHTTPRequestHandler) -> None:
+        handler.close_connection = True
+        try:
+            handler.wfile.write(head)
+            for i in range(len(drip)):
+                if stop.wait(every):
+                    return
+                handler.wfile.write(drip[i:i + 1])
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass  # the client gave up
 
     return route
 

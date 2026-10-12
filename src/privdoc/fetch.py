@@ -119,21 +119,74 @@ def system_resolver(host: str, port: int) -> list[str]:
     return list(dict.fromkeys(info[4][0] for info in infos))
 
 
+class _Deadline:
+    """Socket mixin: every send and receive waits at most until one fixed deadline.
+
+    A socket timeout bounds a single call, and http.client makes many: a server that sends one
+    byte just before each timeout keeps a download alive for hours. Setting the timeout to the
+    time that is left before every call bounds the whole exchange, status line, headers, chunk
+    sizes and body alike, and once the deadline has passed the next call fails at once.
+    """
+
+    __slots__ = ()
+    deadline: float | None = None
+
+    def _time_left(self) -> None:
+        if self.deadline is not None:
+            left = self.deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError("the overall deadline has passed")
+            self.settimeout(left)
+
+    def recv_into(self, *args, **kwargs):
+        self._time_left()
+        return super().recv_into(*args, **kwargs)
+
+    def recv(self, *args, **kwargs):
+        self._time_left()
+        return super().recv(*args, **kwargs)
+
+    def sendall(self, *args, **kwargs):
+        self._time_left()
+        return super().sendall(*args, **kwargs)
+
+
+class _DeadlineSocket(_Deadline, socket.socket):
+    pass
+
+
+class _DeadlineTLSSocket(_Deadline, ssl.SSLSocket):
+    pass
+
+
 class _PinnedConnection(http.client.HTTPConnection):
     """Connects to a pre-checked IP while keeping the host name for Host, SNI and TLS checks."""
 
-    def __init__(self, host: str, port: int, *, ip: str, timeout: float,
+    def __init__(self, host: str, port: int, *, ip: str, deadline: float,
                  tls: ssl.SSLContext | None) -> None:
-        super().__init__(host, port, timeout=timeout)
+        super().__init__(host, port, timeout=max(0.0, deadline - time.monotonic()))
         self._pinned_ip = ip
+        self._deadline = deadline
         self._tls = tls
         if tls is not None:
             self.default_port = 443  # keeps "Host: name" instead of "Host: name:443"
+            tls.sslsocket_class = _DeadlineTLSSocket
 
     def connect(self) -> None:
-        sock = socket.create_connection((self._pinned_ip, self.port), self.timeout)
-        if self._tls is not None:
-            sock = self._tls.wrap_socket(sock, server_hostname=self.host)
+        ip = ipaddress.ip_address(self._pinned_ip)
+        sock = _DeadlineSocket(socket.AF_INET6 if ip.version == 6 else socket.AF_INET,
+                               socket.SOCK_STREAM)
+        sock.deadline = self._deadline
+        try:
+            sock._time_left()  # the connect and the TLS handshake get only the time left too
+            sock.connect((self._pinned_ip, self.port))
+            if self._tls is not None:
+                sock._time_left()
+                sock = self._tls.wrap_socket(sock, server_hostname=self.host)
+                sock.deadline = self._deadline
+        except BaseException:
+            sock.close()
+            raise
         self.sock = sock
 
 
@@ -154,8 +207,8 @@ class _Response:
 
 def pinned_open(request: OpenRequest) -> OpenResponse:
     tls = ssl.create_default_context() if request.scheme == "https" else None
-    conn = _PinnedConnection(request.host, request.port, ip=request.ip, timeout=request.timeout,
-                             tls=tls)
+    conn = _PinnedConnection(request.host, request.port, ip=request.ip,
+                             deadline=time.monotonic() + request.timeout, tls=tls)
     try:
         conn.request("GET", request.target, headers=request.headers)
         return _Response(conn, conn.getresponse())
@@ -290,7 +343,7 @@ class SafeFetcher:
                                                target.target, headers, remaining))
             except (OSError, http.client.HTTPException) as err:
                 last = err
-        if last is None:
+        if last is None or isinstance(last, TimeoutError):
             raise FetchError(f"the download from {target.host} timed out")
         raise FetchError(f"could not download from {target.host} ({type(last).__name__})")
 
@@ -323,6 +376,8 @@ class SafeFetcher:
                 total += len(chunk)
                 if total > cap:
                     raise FetchError(limit)
+        except TimeoutError:
+            raise FetchError(f"the download from {host} timed out") from None
         except (OSError, http.client.HTTPException) as err:
             raise FetchError(f"the download from {host} failed ({type(err).__name__})") from None
         return declared, b"".join(chunks)
