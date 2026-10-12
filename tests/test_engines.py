@@ -1,5 +1,6 @@
 import base64
 import io
+import itertools
 import json
 import subprocess
 
@@ -305,6 +306,38 @@ def test_line_item_tables_are_read_between_the_header_and_the_first_other_line()
     assert fields["line_items"]["value"] == [
         {"description": "Pipe fitting kit", "quantity": 2, "unit_price": 12.5, "amount": 25.0},
         {"description": "Labor - 2 hours", "quantity": 1, "unit_price": 85.0, "amount": 85.0}]
+
+
+TABLE_ITEMS = [
+    {"description": "Widget", "quantity": 3, "unit_price": 9.99, "amount": 29.97},
+    {"description": "Labor - 2 hours", "quantity": 2, "unit_price": 85.0, "amount": 170.0}]
+HEADER_LABELS = {"description": "Description", "quantity": "Qty", "unit_price": "Unit price",
+                 "amount": "Amount"}
+
+
+def _printed(value):
+    return f"{value:.2f}" if isinstance(value, float) else str(value)
+
+
+@pytest.mark.parametrize("order", list(itertools.permutations(HEADER_LABELS)))
+def test_line_item_columns_are_read_in_the_order_the_header_prints_them(order):
+    lines = ["   ".join(HEADER_LABELS[column] for column in order)]
+    lines += ["  ".join(_printed(item[column]) for column in order) for item in TABLE_ITEMS]
+    table = rules("\n".join(lines))["line_items"]
+    assert _same(table["value"], TABLE_ITEMS), lines
+    assert table["confidence"] == "medium"
+
+
+def test_unit_price_before_qty_is_not_swapped():
+    table = rules("Description   Unit price   Qty   Amount\nWidget  9.99  3  29.97")["line_items"]
+    assert table["value"] == [
+        {"description": "Widget", "quantity": 3, "unit_price": 9.99, "amount": 29.97}]
+
+
+def test_a_header_that_does_not_place_every_number_column_gives_a_low_confidence_table():
+    # "Total" is not one of the amount column's labels, so where amount sits is a guess
+    table = rules("Description Qty Unit price Total\nWidget 3 9.99 29.97")["line_items"]
+    assert table["confidence"] == "low"
 
 
 def test_a_table_longer_than_the_evidence_limit_stays_grounded():

@@ -38,6 +38,12 @@ def test_documents_are_deterministic_per_seed():
     assert len({make_doc("invoice", s).truth["invoice_number"] for s in range(10)}) > 5
 
 
+def test_invoices_print_their_line_item_columns_in_varied_orders():
+    headers = {next(line.text for line in make_doc("invoice", seed).pages[0]
+                    if line.text.startswith("Description")) for seed in range(12)}
+    assert "Description Qty Unit price Amount" in headers and len(headers) > 2
+
+
 def test_absent_fields_are_really_absent_from_the_page():
     docs = [make_doc("invoice", s) for s in range(20)]
     without_po = [d for d in docs if "po_number" in d.absent]

@@ -268,16 +268,11 @@ def _invoice(rng: random.Random) -> tuple[dict[str, Any], list[list[Line]]]:
         truth["po_number"] = f"PO-{rng.randint(10000, 99999)}"
         page1.append(_line(f"PO number: {truth['po_number']}"))
     page1.append(_line(f"Bill to: {customer}", gap=8))
-    page1.append(Line(((LEFT, "Description"), (340.0, "Qty"), (400.0, "Unit price"),
-                       (490.0, "Amount")), bold=True, gap=10))
     items = []
     for description in rng.sample(ITEMS, rng.randint(2, 4)):
         quantity, unit = rng.randint(1, 5), rng.randint(250, 18000) / 100
-        amount = round(quantity * unit, 2)
         items.append({"description": description, "quantity": quantity, "unit_price": unit,
-                      "amount": amount})
-        page1.append(Line(((LEFT, description), (340.0, str(quantity)), (400.0, f"{unit:.2f}"),
-                           (490.0, f"{amount:.2f}"))))
+                      "amount": round(quantity * unit, 2)})
     subtotal = round(sum(i["amount"] for i in items), 2)
     truth.update(line_items=items, subtotal=subtotal)
     page2 = [_line("Totals", 13, True), _line(f"Subtotal: {_money(subtotal, ms)}")]
@@ -290,7 +285,29 @@ def _invoice(rng: random.Random) -> tuple[dict[str, Any], list[list[Line]]]:
     truth["total"] = total
     page2 += [_line(f"Total due: {_money(total, ms)}", bold=True),
               _line(f"Payable to: {vendor}", gap=10), _line("Thank you for your business.")]
+    # Real invoices print "Unit price | Qty" as often as "Qty | Unit price". The order is drawn
+    # last, so every other draw (and so every value) is the same whichever order is printed.
+    page1 += _item_table(items, rng.sample(ITEM_COLUMNS, len(ITEM_COLUMNS)))
     return truth, [page1, page2]
+
+
+ITEM_COLUMNS = (("quantity", "Qty"), ("unit_price", "Unit price"), ("amount", "Amount"))
+_COLUMN_X = (340.0, 400.0, 490.0)
+
+
+def _item_table(items: list[dict[str, Any]],
+                columns: list[tuple[str, str]]) -> list[Line]:
+    """The line-item table, with its number columns printed in the given order."""
+    def cell(value: Any) -> str:
+        return str(value) if isinstance(value, int) else f"{value:.2f}"
+
+    header = Line(((LEFT, "Description"),
+                   *((x, label) for x, (_, label) in zip(_COLUMN_X, columns, strict=True))),
+                  bold=True, gap=10)
+    return [header] + [Line(((LEFT, item["description"]),
+                             *((x, cell(item[name]))
+                               for x, (name, _) in zip(_COLUMN_X, columns, strict=True))))
+                       for item in items]
 
 
 def _receipt(rng: random.Random) -> tuple[dict[str, Any], list[list[Line]]]:

@@ -9,7 +9,10 @@ due date is never read as the invoice date. A label must start its line or be fo
 colon, so prose like "...after the invoice date" is not mistaken for a field.
 
 Arrays of flat objects (invoice line items) are read as a table: a header line naming at least
-two of the item's properties, followed by rows of "text, then one number per numeric column".
+two of the item's properties, followed by rows with one text cell and one number per numeric
+column. Cells are matched to columns in the order the header prints them, found from where each
+label sits on the header line, never in the schema's order; when the header does not place every
+number column, the table is still read but only with low confidence.
 """
 
 from __future__ import annotations
@@ -157,31 +160,78 @@ class RuleExtractor:
         num_cols = [n for n, node in props.items() if primary_type(node) in ("number", "integer")]
         if len(text_cols) != 1 or not num_cols or len(text_cols) + len(num_cols) != len(props):
             return None
-        header_labels = {n: [_label_regex(label) for label in labels_for(n, node)]
-                         for n, node in props.items()}
-        row = re.compile(r"^(?P<text>.*?[A-Za-z].*?)" + "".join(
-            rf"\s+(?P<n{i}>{_NUMBER})" for i in range(len(num_cols))) + r"\s*$")
+        labels = [(name, _label_regex(label)) for name, node in props.items()
+                  for label in labels_for(name, node)]
         for page in pages:
             lines = page.text.splitlines()
             for i, line in enumerate(lines):
-                named = sum(any(rx.search(line) for rx in regexes)
-                            for regexes in header_labels.values())
-                if named < 2:
+                placed = self._header(line, labels)
+                if len(placed) < 2:
                     continue
+                order, certain = self._columns(placed, text_cols[0], num_cols)
+                row = re.compile("^" + r"\s+".join(
+                    r"(?P<text>.*?[A-Za-z].*?)" if name == text_cols[0] else rf"(?P<c{k}>{_NUMBER})"
+                    for k, name in enumerate(order)) + r"\s*$")
                 rows, used = [], [line.strip()]
                 for following in lines[i + 1:]:
-                    match = row.match(following.strip())
-                    numbers = [parse_number(match.group(f"n{k}")) for k in range(len(num_cols))
-                               ] if match else []
-                    if not match or any(n is None for n in numbers):
+                    item = self._row(row.match(following.strip()), order, text_cols[0], props)
+                    if item is None:
                         break
-                    item: dict[str, Any] = {text_cols[0]: match.group("text").strip()}
-                    for name, number in zip(num_cols, numbers, strict=True):
-                        integral = primary_type(props[name]) == "integer" and number.is_integer()
-                        item[name] = int(number) if integral else number
                     rows.append(item)
                     used.append(following.strip())
                 if rows:
-                    return {"value": rows, "unreadable": False, "confidence": "medium",
+                    return {"value": rows, "unreadable": False,
+                            "confidence": "medium" if certain else "low",
                             "evidence": " ".join(used), "page": page.page}
         return None
+
+    @staticmethod
+    def _header(line: str, labels: list[tuple[str, re.Pattern[str]]]) -> dict[str, list[int]]:
+        """Where each column's label is printed on a possible header line. When labels overlap
+        ("Unit price" and "Price"), the longest one wins."""
+        hits = sorted(((m.start(), m.end(), name)
+                       for name, rx in labels for m in rx.finditer(line)),
+                      key=lambda hit: (hit[0] - hit[1], hit[0]))  # longest first, then leftmost
+        chosen: list[tuple[int, int, str]] = []
+        for start, end, name in hits:
+            if all(end <= other_start or start >= other_end
+                   for other_start, other_end, _ in chosen):
+                chosen.append((start, end, name))
+        placed: dict[str, list[int]] = {}
+        for start, _, name in sorted(chosen):
+            placed.setdefault(name, []).append(start)
+        return placed
+
+    @staticmethod
+    def _columns(placed: dict[str, list[int]], text_col: str,
+                 num_cols: list[str]) -> tuple[list[str], bool]:
+        """The columns in the order the header prints them, and whether that order is certain.
+
+        Rows are read in this order, never in the schema's: "Unit price | Qty" must not swap the
+        two numbers. A number column the header does not name (or names twice) has to be guessed,
+        after the named ones, and a guess makes the whole table low confidence. The text column
+        is assumed to come first when it is not named.
+        """
+        order = [name for _, name in sorted((spots[0], name) for name, spots in placed.items())]
+        certain = all(len(placed.get(name, ())) == 1 for name in num_cols)
+        if text_col not in placed:
+            order.insert(0, text_col)
+        order += [name for name in num_cols if name not in placed]
+        return order, certain
+
+    @staticmethod
+    def _row(match: re.Match[str] | None, order: list[str], text_col: str,
+             props: Mapping[str, Any]) -> dict[str, Any] | None:
+        if match is None:
+            return None
+        cells: dict[str, Any] = {}
+        for k, name in enumerate(order):
+            if name == text_col:
+                cells[name] = match.group("text").strip()
+                continue
+            number = parse_number(match.group(f"c{k}"))
+            if number is None:
+                return None
+            integral = primary_type(props[name]) == "integer" and number.is_integer()
+            cells[name] = int(number) if integral else number
+        return {name: cells[name] for name in props}

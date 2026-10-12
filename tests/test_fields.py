@@ -56,6 +56,21 @@ def test_absent_fields_have_no_value_and_no_confidence(reported):
     assert c.value is None and c.confidence == "none" and not c.unreadable and not c.seen
 
 
+ROWS = "Description Qty Unit price Amount\nWidget 3 9.99 29.97\nGadget 2 5.00 {}"
+
+
+@pytest.mark.parametrize("printed, confidence", [("10.00", "high"), ("12.00", "low")])
+def test_line_items_whose_quantity_times_unit_price_is_not_the_amount_drop_to_low(
+        printed, confidence):
+    # the invoice schema declares x-product: quantity x unit_price = amount on every row
+    page = ROWS.format(printed)
+    items = [{"description": "Widget", "quantity": 3, "unit_price": 9.99, "amount": 29.97},
+             {"description": "Gadget", "quantity": 2, "unit_price": 5.0,
+              "amount": float(printed)}]
+    c = norm("line_items", raw(items, evidence=page), text=page)
+    assert c.usable and c.grounded and c.confidence == confidence
+
+
 def test_unknown_confidence_words_count_as_low():
     assert norm("invoice_number", raw("INV-1042", confidence="very high")).confidence == "low"
     assert norm("invoice_number", raw("INV-1042", confidence="none")).confidence == "low"

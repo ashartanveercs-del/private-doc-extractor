@@ -6,7 +6,7 @@ own cloud account, or nowhere at all.
 
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-565%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-601%20passed-brightgreen)
 
 ```text
 $ privdoc extract receipt.pdf --schema receipt --tier local        # page 1 typed, page 2 scanned
@@ -45,8 +45,8 @@ the document", and nothing left the machine (exit code 1: read, but incomplete).
 | **Per-page escalation** | Only failed or doubtful pages are re-read by the next, stronger engine (a larger model, or Tesseract at 400 dpi on a cleaned image). The merge never turns something seen into "not on the document". |
 | **Content-addressed cache** | Keys hash the document, the page, the engine's fingerprint, the schema and the prompt version; failed readings are never cached. |
 | **SSRF-safe links** | DNS is resolved once and the connection pinned to the checked address; every redirect hop is re-checked; IPv4 hidden in IPv6 and numeric host tricks are refused; size, time and content type are capped. |
-| **Benchmark** | Synthetic invoices, receipts and tax forms generated in code in five renderings (typed, scanned, searchable scan, mixed, phone photo), plus an optional FUNSD download. Reports field accuracy, hallucination rate, cost and seconds per page. |
-| **Tested offline** | 565 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
+| **Benchmark** | Synthetic invoices (their line-item columns printed in varied orders), receipts and tax forms generated in code in five renderings (typed, scanned, searchable scan, mixed, phone photo), plus an optional FUNSD download. Reports field accuracy, hallucination rate, cost and seconds per page. |
+| **Tested offline** | 601 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
 
 ## Architecture
 
@@ -237,8 +237,15 @@ Built in: [`invoice`](src/privdoc/schemas/invoice.schema.json) (with line items)
 (one type, optionally with `null`), `properties`, `required`, `items`, `enum`, `const`,
 `pattern`, `format` (`date`, `date-time`, `email`), `minimum`/`maximum` (and exclusive),
 `minLength`/`maxLength`, `minItems`/`maxItems`, plus annotations. `x-labels` lists the printed
-labels a value may appear under, used by the rule extractor and in prompts. Anything else is
-refused with its location.
+labels a value may appear under, used by the rule extractor and in prompts. `x-product` on the
+row object of a table (the invoice has `["quantity", "unit_price", "amount"]`) says the last
+column is the product of the others: a row that breaks it by more than 0.5% leaves the whole
+field at low confidence, whichever engine read it, because a number read into the wrong column
+is still schema-valid and still on the page. Anything else is refused with its location.
+
+The rule extractor reads such a table by the printed header: each column is placed where its
+label sits on the header line, so "Unit price | Qty" is never read as "Qty | Unit price". When
+the header does not place every number column, the table is read with low confidence.
 
 ## Configuration
 
@@ -308,7 +315,7 @@ they depend on the model and its price, so measure them with your own key.
 ## Testing
 
 ```bash
-pytest                  # 565 passed, 4 skipped in 20-35 s; no network, no keys
+pytest                  # 601 passed, 4 skipped in 20-35 s; no network, no keys
 ruff check src tests scripts examples
 pytest -m tesseract     # the real Tesseract binary (skipped when it is not installed)
 ```

@@ -275,6 +275,8 @@ def _check(node: Any, path: str, depth: int) -> None:
         if not isinstance(node.get("items"), Mapping):
             raise SchemaError(f"{where}: an array needs a single 'items' schema")
         _check(node["items"], f"{path}/items", depth + 1)
+    if "x-product" in node:
+        _check_product(node, path, kind)
 
     if "enum" in node:
         enum = node["enum"]
@@ -296,6 +298,22 @@ def _check(node: Any, path: str, depth: int) -> None:
         if key in node and not (isinstance(node[key], int) and not isinstance(node[key], bool)
                                 and node[key] >= 0):
             raise SchemaError(f"{where}: {key} must be a non-negative integer")
+
+
+def _check_product(node: Mapping[str, Any], path: str, kind: str) -> None:
+    """x-product on a table row: the last column is the product of the others (quantity x unit
+    price = amount). Rows that break it are read with low confidence, so it must be exact."""
+    where = path or "/"
+    if kind != "object" or not path.endswith("/items"):
+        raise SchemaError(f"{where}: x-product belongs on the row object of a table (an "
+                          "array's items)")
+    product, props = node["x-product"], node["properties"]
+    if not (isinstance(product, list) and len(product) >= 3
+            and all(isinstance(name, str) and name in props
+                    and primary_type(props[name]) in ("number", "integer") for name in product)
+            and len(set(product)) == len(product)):
+        raise SchemaError(f"{where}: x-product must list three or more different number "
+                          "columns of the row, the product last")
 
 
 # -- validation --------------------------------------------------------------------------------

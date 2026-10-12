@@ -74,6 +74,40 @@ def test_annotations_and_x_extensions_are_accepted():
     assert schema.field("a").description == "d"
 
 
+NUMBER = {"type": "number"}
+
+
+def table(**row_keywords):
+    return small(items={"type": "array", "items": {
+        "type": "object", "properties": {"name": {"type": "string"}, "quantity": NUMBER,
+                                         "price": NUMBER, "amount": NUMBER}, **row_keywords}})
+
+
+def test_x_product_declares_a_product_across_the_columns_of_a_table_row():
+    schema = DocSchema(table(**{"x-product": ["quantity", "price", "amount"]}))
+    assert schema.field("items").schema["items"]["x-product"] == ["quantity", "price", "amount"]
+    assert load_schema("invoice").field("line_items").schema["items"]["x-product"] == [
+        "quantity", "unit_price", "amount"]
+
+
+@pytest.mark.parametrize("product", [
+    ["quantity", "price"],               # needs the factors and the product: three or more
+    ["quantity", "price", "total"],      # not a column of the row
+    ["quantity", "name", "amount"],      # not a number column
+    ["quantity", "quantity", "amount"],  # repeated
+    "quantity * price = amount",         # not a list of column names
+])
+def test_a_malformed_x_product_is_refused(product):
+    with pytest.raises(SchemaError, match="x-product"):
+        DocSchema(table(**{"x-product": product}))
+
+
+def test_x_product_is_only_accepted_on_the_rows_of_a_table():
+    with pytest.raises(SchemaError, match="x-product"):
+        DocSchema({"type": "object", "x-product": ["quantity", "price", "amount"],
+                   "properties": {"quantity": NUMBER, "price": NUMBER, "amount": NUMBER}})
+
+
 def test_labels_come_from_x_labels_then_title_then_the_name():
     schema = DocSchema(small(invoice_number={"type": "string", "title": "Invoice no.",
                                              "x-labels": ["Invoice #", "invoice NO."]}))

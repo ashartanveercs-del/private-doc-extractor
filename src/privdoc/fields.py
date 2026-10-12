@@ -14,6 +14,7 @@ Field statuses in the output:
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
@@ -21,7 +22,7 @@ from typing import Any
 
 from .coerce import coerce
 from .grounding import is_grounded, normalize_text
-from .schema import CONFIDENCES, DocSchema, FieldSpec
+from .schema import CONFIDENCES, DocSchema, FieldSpec, primary_type
 
 CONFIDENCE_RANK = {name: rank for rank, name in enumerate(reversed(CONFIDENCES))}
 _ILLEGIBLE_ONLY = re.compile(r"^\W*(?:\[?illegible\]?|unreadable|unclear|\?+)\W*$", re.IGNORECASE)
@@ -65,6 +66,30 @@ def _as_text(value: Any) -> str:
     return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def products_hold(node: Mapping[str, Any], value: Any) -> bool:
+    """False when a table row breaks its schema's ``x-product`` (quantity x unit price = amount).
+
+    A value can be schema-valid and on the page and still be read into the wrong column, so
+    each row's product is checked within half a percent (at least a cent) for rounding.
+    """
+    kind = primary_type(node)
+    if kind == "array" and isinstance(value, list):
+        return all(products_hold(node["items"], item) for item in value)
+    if kind != "object" or not isinstance(value, Mapping):
+        return True
+    names = node.get("x-product")
+    if names and all(_is_number(value.get(name)) for name in names):
+        *factors, product = (value[name] for name in names)
+        if abs(math.prod(factors) - product) > 0.01 + 0.005 * abs(product):
+            return False
+    props = node["properties"]
+    return all(products_hold(props[key], item) for key, item in value.items() if key in props)
+
+
 def normalize_candidate(raw: Mapping[str, Any] | None, spec: FieldSpec, schema: DocSchema, *,
                         page: int | None, page_text: str, source: str,
                         date_order: str = "MDY") -> Candidate:
@@ -98,7 +123,7 @@ def normalize_candidate(raw: Mapping[str, Any] | None, spec: FieldSpec, schema: 
     if value is not None:
         issues = tuple(str(i) for i in schema.validate_field(spec.name, value))
         grounded = is_grounded(value, evidence, page_text, spec.schema, date_order)
-        if not grounded or confidence == "none":
+        if not grounded or confidence == "none" or not products_hold(spec.schema, value):
             confidence = "low"
     else:
         confidence = "none"

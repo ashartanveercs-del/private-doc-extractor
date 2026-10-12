@@ -63,6 +63,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["description", "quantity", "unit_price", "amount"],
+        "x-product": ["quantity", "unit_price", "amount"],
         "properties": {
           "description": {"type": "string", "x-labels": ["Description", "Item"]},
           "quantity": {"type": "number", "minimum": 0, "x-labels": ["Qty", "Quantity"]},
