@@ -85,7 +85,7 @@ class RuleExtractor:
                     value = self._typed(segment[:200], spec)
                     if value is not None:
                         found[spec.name] = {"value": value, "unreadable": False,
-                                            "confidence": "medium", "evidence": evidence[:300],
+                                            "confidence": "medium", "evidence": evidence,
                                             "page": page.page}
         return found
 
@@ -183,5 +183,5 @@ class RuleExtractor:
                     used.append(following.strip())
                 if rows:
                     return {"value": rows, "unreadable": False, "confidence": "medium",
-                            "evidence": " ".join(used)[:300], "page": page.page}
+                            "evidence": " ".join(used), "page": page.page}
         return None

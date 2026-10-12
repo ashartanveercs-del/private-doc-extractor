@@ -1,3 +1,5 @@
+import pytest
+
 from privdoc.grounding import is_grounded, normalize_text
 
 PAGE = """CEDAR LANE  PLUMBING,
@@ -60,3 +62,29 @@ def test_booleans_need_evidence():
 def test_nothing_is_grounded_in_an_empty_page():
     assert not is_grounded("INV-1042", None, "", TEXT)
     assert not is_grounded("INV-1042", "INV-1042", "   ", TEXT)
+
+
+@pytest.mark.parametrize("value, page_text", [
+    ("12", "Invoice #: INV-41234"),        # inside a number
+    ("Acme", "Paid by: Acmeco Holdings"),   # the start of a longer word
+    ("A", "Total due: $10.00"),             # one letter of a word
+    ("1", "Total due: $1,250.00"),          # the first digit group of an amount
+    ("—", "anything"),                 # no letters or digits at all
+])
+def test_fragments_of_words_are_not_grounded(value, page_text):
+    assert not is_grounded(value, None, page_text, TEXT)
+
+
+@pytest.mark.parametrize("value, page_text", [
+    ("INV-41234", "Invoice #: INV-41234"), ("41234", "Invoice #: INV-41234"),
+    ("Acmeco", "Paid by: Acmeco Holdings"), ("14:32", "Time: 14:32"),
+    ("12-3456789", "Payer TIN: 12-3456789"), ("cedar lane plumbing", PAGE),
+])
+def test_whole_words_are_grounded_whatever_the_case_and_punctuation(value, page_text):
+    assert is_grounded(value, None, page_text, TEXT)
+
+
+def test_evidence_must_start_and_end_on_word_boundaries():
+    assert not is_grounded("12", "12", "Invoice #: INV-41234", TEXT)
+    assert not is_grounded(1.0, "Total due: $1", PAGE, NUMBER)  # the page says $1,250.00
+    assert is_grounded(1250.0, "due: $1,250.00", PAGE, NUMBER)

@@ -66,6 +66,12 @@ def test_evidence_is_trimmed():
     assert len(c.evidence) <= 300
 
 
+def test_long_evidence_is_checked_in_full_and_only_trimmed_in_the_output():
+    line = "Notes: " + "see the attached schedule " * 15 + "Invoice #: INV-1042"
+    c = norm("invoice_number", raw("INV-1042", evidence=line), text=line)
+    assert c.grounded and c.confidence == "high" and len(c.evidence) <= 300
+
+
 # -- escalation merge --------------------------------------------------------------------------
 
 def cand(value=None, confidence="high", unreadable=False, grounded=True, issues=(), partial=None,

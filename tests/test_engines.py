@@ -13,6 +13,7 @@ from privdoc.engines.tesseract import TesseractReader, parse_tsv
 from privdoc.engines.text_llm import TextLLMExtractor
 from privdoc.engines.vision_llm import VisionLLMReader
 from privdoc.errors import EngineError
+from privdoc.fields import normalize_candidate
 from privdoc.llm import ChatClient
 from privdoc.pricing import Price, Prices
 from privdoc.privacy import EgressGate, Tier, Trust
@@ -304,6 +305,16 @@ def test_line_item_tables_are_read_between_the_header_and_the_first_other_line()
     assert fields["line_items"]["value"] == [
         {"description": "Pipe fitting kit", "quantity": 2, "unit_price": 12.5, "amount": 25.0},
         {"description": "Labor - 2 hours", "quantity": 1, "unit_price": 85.0, "amount": 85.0}]
+
+
+def test_a_table_longer_than_the_evidence_limit_stays_grounded():
+    rows = ["Description Qty Unit price Amount"] + [
+        f"Replacement filter cartridge {i} 2 12.50 25.00" for i in range(1, 9)]
+    text = "\n".join(rows)
+    candidate = normalize_candidate(rules(text)["line_items"], INVOICE.field("line_items"),
+                                    INVOICE, page=1, page_text=text, source="rules")
+    assert len(candidate.value) == 8 and candidate.grounded
+    assert candidate.confidence == "medium" and len(candidate.evidence) <= 300
 
 
 def _same(a, b):

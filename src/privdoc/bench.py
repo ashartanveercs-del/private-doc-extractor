@@ -10,7 +10,9 @@ Definitions (per field the schema asks for):
   missed          present, but nothing came back
   invented        absent, but a value came back
   unsupported     a returned value that does not occur anywhere in the document's real text:
-                  every invented value, and wrong values that are not a misplaced real value
+                  every invented value, and wrong values that are not a misplaced real value.
+                  "Occurs" is decided by :func:`occurs_in`, not by the pipeline's own grounding
+                  check, and is stricter: whole printed words and numbers only
 
   field accuracy      = correct / present
   hallucination rate  = unsupported / returned values
@@ -30,10 +32,58 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .coerce import find_dates, parse_number
 from .errors import PrivacyViolation, PrivdocError, UnsafeURL, UsageError
-from .grounding import is_grounded, normalize_text
+from .grounding import normalize_text
 from .schema import DocSchema, load_schema, primary_type
 from .synth import KINDS, VARIANTS, make_doc, render
+
+# punctuation that may sit around a printed word ("Total:", "(paid)", "Co.,") but not inside it
+_AROUND_WORDS = "\"'`()[]{}<>,.;:!?*#|/\\-–—"
+_AROUND_NUMBERS = "\"'`[]{}<>,;:!?*#|/\\"  # keeps "(12.50)", "-3" and "$5.00" readable
+
+
+def _printed_words(text: str) -> list[str]:
+    words = (word.strip(_AROUND_WORDS) for word in text.casefold().split())
+    return [word for word in words if word]
+
+
+def occurs_in(value: Any, text: str, node: Mapping[str, Any]) -> bool:
+    """Is a returned value written in the document's real text?
+
+    Used to score hallucinations, so it is deliberately independent of grounding.py (the
+    pipeline's own check, which decides confidence) and stricter than it. Text must appear as
+    the same sequence of whole whitespace-separated words, ignoring case and the punctuation
+    around words but not inside them ("INV1042" is not "INV-1042", "INV" is not "INV-1042");
+    a number must be a whole printed number, to the cent; a date the same calendar day. A
+    boolean cannot be traced to text, so a wrong one is never "on the page".
+    """
+    if value is None:
+        return True
+    kind = primary_type(node)
+    if kind == "array":
+        return isinstance(value, list) and all(occurs_in(v, text, node["items"]) for v in value)
+    if kind == "object":
+        props = node["properties"]
+        return isinstance(value, Mapping) and all(
+            occurs_in(v, text, props[k]) for k, v in value.items() if k in props)
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int | float):
+        for word in text.split():
+            number = parse_number(word.strip(_AROUND_NUMBERS))
+            if number is None:
+                number = parse_number(word.strip(_AROUND_WORDS + "$€£"))
+            if number is not None and abs(number - value) < 0.005:
+                return True
+        return False
+    if not isinstance(value, str):
+        return False
+    if node.get("format") == "date" and value in find_dates(text):
+        return True
+    wanted, words = _printed_words(value), _printed_words(text)
+    return bool(wanted) and any(words[i:i + len(wanted)] == wanted
+                                for i in range(len(words) - len(wanted) + 1))
 
 
 @dataclass
@@ -134,7 +184,7 @@ def score_case(case: BenchCase, outcome: Outcome) -> CaseScore:
         else:
             score.wrong += 1
             score.wrong_fields.append(spec.name)
-            if not is_grounded(got, None, case.source_text, spec.schema):
+            if not occurs_in(got, case.source_text, spec.schema):
                 score.unsupported += 1
     return score
 

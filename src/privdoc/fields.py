@@ -75,7 +75,8 @@ def normalize_candidate(raw: Mapping[str, Any] | None, spec: FieldSpec, schema: 
     confidence = raw.get("confidence")
     confidence = confidence if confidence in CONFIDENCE_RANK else "low"
     evidence = raw.get("evidence")
-    evidence = (" ".join(evidence.split())[:_MAX_TEXT]
+    # grounded against the whole quote; trimmed only for the output (a cut can split a word)
+    evidence = (" ".join(evidence.split())
                 if isinstance(evidence, str) and evidence.strip() else None)
     partial = None
     if isinstance(value, str):
@@ -102,8 +103,8 @@ def normalize_candidate(raw: Mapping[str, Any] | None, spec: FieldSpec, schema: 
     else:
         confidence = "none"
     return Candidate(field=spec.name, page=page, source=source, value=value, raw=original,
-                     confidence=confidence, evidence=evidence, unreadable=unreadable,
-                     partial=partial, grounded=grounded, issues=issues)
+                     confidence=confidence, evidence=evidence[:_MAX_TEXT] if evidence else None,
+                     unreadable=unreadable, partial=partial, grounded=grounded, issues=issues)
 
 
 def _partial_of(c: Candidate) -> str | None:

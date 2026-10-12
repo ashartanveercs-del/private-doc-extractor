@@ -43,6 +43,21 @@ def test_scoring_separates_misses_wrong_values_and_hallucinations():
     assert score.invented_fields == ["po"]
 
 
+@pytest.mark.parametrize("field, wrong, unsupported", [
+    ("number", "INV", True),          # part of the word INV-1: not written anywhere
+    ("number", "voice", True),        # part of "Invoice"
+    ("number", "lamp 9", True),       # "9" is only part of the printed 9.00
+    ("total", 1.0, True),             # the 1 of INV-1 is not a printed amount
+    ("number", "Desk lamp", False),   # real words in the wrong field: an error, not invented
+    ("total", 9.0, False),            # the subtotal: a misplaced real value
+])
+def test_only_wrong_values_that_are_whole_words_of_the_document_count_as_real(
+        field, wrong, unsupported):
+    score = score_case(case({"number": "INV-1", "total": 10.0}),
+                       Outcome(data={field: wrong}, pages=1))
+    assert score.wrong == 1 and score.unsupported == int(unsupported)
+
+
 def test_an_extraction_error_counts_every_present_field_as_missed():
     score = score_case(case({"number": "INV-1", "total": 10.0}),
                        Outcome(data=None, error="could not open the PDF", pages=1))

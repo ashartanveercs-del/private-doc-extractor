@@ -6,7 +6,7 @@ own cloud account, or nowhere at all.
 
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-545%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-565%20passed-brightgreen)
 
 ```text
 $ privdoc extract receipt.pdf --schema receipt --tier local        # page 1 typed, page 2 scanned
@@ -41,12 +41,12 @@ the document", and nothing left the machine (exit code 1: read, but incomplete).
 | **Privacy tiers that are enforced** | `cloud`, `own-cloud` or `local` (the default). The plan only uses engines the tier allows (asking for another one is refused before the file is opened), and every request that could carry document content passes one gate that admits only the exact origins the plan registered. In `local` nothing is sent; the tests prove it with a socket-level tripwire. |
 | **Schema-strict JSON** | A JSON Schema subset that is enforced completely: an unsupported keyword is refused, not ignored. Model output is coerced, validated, repaired once, and only valid values ever reach `data`. |
 | **Honest field statuses** | `found`, `unreadable` (with what could be made out), `invalid` (with the raw value), `not_found` (every page was read) and `not_checked` (some pages were not). |
-| **Grounding** | A value must be traceable to verbatim text on its page. Ungrounded values are downgraded to low confidence and re-checked. |
+| **Grounding** | A value must be traceable to verbatim text on its page, as whole words (a fragment of a longer word does not count). Ungrounded values are downgraded to low confidence and re-checked. |
 | **Per-page escalation** | Only failed or doubtful pages are re-read by the next, stronger engine (a larger model, or Tesseract at 400 dpi on a cleaned image). The merge never turns something seen into "not on the document". |
 | **Content-addressed cache** | Keys hash the document, the page, the engine's fingerprint, the schema and the prompt version; failed readings are never cached. |
 | **SSRF-safe links** | DNS is resolved once and the connection pinned to the checked address; every redirect hop is re-checked; IPv4 hidden in IPv6 and numeric host tricks are refused; size, time and content type are capped. |
 | **Benchmark** | Synthetic invoices, receipts and tax forms generated in code in five renderings (typed, scanned, searchable scan, mixed, phone photo), plus an optional FUNSD download. Reports field accuracy, hallucination rate, cost and seconds per page. |
-| **Tested offline** | 545 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
+| **Tested offline** | 565 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
 
 ## Architecture
 
@@ -132,9 +132,11 @@ into "not on the document", and a value is never traded for a less trusted one.
 **4. Valid is not the same as true.** A well-formed, schema-valid value can still be invented.
 A value is grounded when the evidence quoted for it occurs verbatim in the page text and the
 value is consistent with that evidence (without evidence, the value itself must be on the page):
-"$1,250.00" grounds 1250.0, "03/14/2026" grounds 2026-03-14
-([`grounding.py`](src/privdoc/grounding.py)). Ungrounded values drop to low confidence, which
-triggers escalation; the benchmark's hallucination rate measures what is left.
+"$1,250.00" grounds 1250.0, "03/14/2026" grounds 2026-03-14. Text is matched as whole words, not
+as a substring: "12" is not on a page that only says INV-41234, "Acme" is not "Acmeco", and a
+value with no letters or digits is never grounded ([`grounding.py`](src/privdoc/grounding.py)).
+Ungrounded values drop to low confidence, which triggers escalation; the benchmark's
+hallucination rate, scored by its own stricter matcher, measures what is left.
 
 **5. Privacy is enforced where bytes leave, not where engines are chosen.** The gate compares
 the full origin (scheme, host and port) of every request against what the plan registered,
@@ -277,9 +279,11 @@ For every field the schema asks for, the ground truth either has a value (presen
 is not on the document (absent: optional fields the generator left out, and for FUNSD questions
 borrowed from other forms). **Field accuracy** = correct / present (text compared ignoring case
 and punctuation, numbers to the cent, dates by day). **Hallucination rate** = returned values
-that occur nowhere in the document's real text / all returned values. A wrong pick of a real
-value (the subtotal returned as the total) is an error but not a hallucination; a value for an
-absent field always is.
+that do not occur in the document's real text / all returned values, where "occur" means whole
+printed words or a whole printed number (`occurs_in` in [`bench.py`](src/privdoc/bench.py): its
+own matcher, stricter than and independent of the pipeline's grounding check, so the pipeline is
+not graded by its own rule). A wrong pick of a real value (the subtotal returned as the total)
+is an error but not a hallucination; a value for an absent field always is.
 
 Measured with `privdoc bench --tier local --per-kind 4` on a laptop **without Tesseract**
 installed, 60 documents, 84 pages (two runs: identical counts, timings vary slightly):
@@ -294,13 +298,17 @@ installed, 60 documents, 84 pages (two runs: identical counts, timings vary slig
 With no OCR engine, every scanned page was reported unread and every field on it `not_checked`:
 not one value was guessed for the 85 fields that were not on their documents. The CI `ocr` job
 installs Tesseract, runs the integration tests and the same benchmark (2 documents per kind and
-variant), and uploads the full report (`bench-results.json`) as a build artifact. Numbers for a
-cloud model depend on the model and its price, so measure them with your own key.
+variant), and uploads the full report (`bench-results.json`) as a build artifact.
+
+The 0% hallucination rate above is true by construction, not a measured strength: the rule
+extractor can only return text it copied from the page. The metric is there for LLM extractors
+(`--tier cloud`, or `own-cloud` with an LLM you host), and no LLM numbers are published here:
+they depend on the model and its price, so measure them with your own key.
 
 ## Testing
 
 ```bash
-pytest                  # 545 passed, 4 skipped in 20-35 s; no network, no keys
+pytest                  # 565 passed, 4 skipped in 20-35 s; no network, no keys
 ruff check src tests scripts examples
 pytest -m tesseract     # the real Tesseract binary (skipped when it is not installed)
 ```
