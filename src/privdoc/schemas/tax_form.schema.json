@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Contractor payment statement",
+  "description": "A simple annual statement of payments made to an independent contractor.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tax_year", "payer_name", "recipient_name", "compensation"],
+  "properties": {
+    "tax_year": {
+      "type": "integer",
+      "minimum": 2000,
+      "maximum": 2100,
+      "x-labels": ["Tax year"]
+    },
+    "payer_name": {"type": "string", "x-labels": ["Payer name", "Payer"]},
+    "payer_tin": {
+      "type": "string",
+      "pattern": "^[0-9]{2}-[0-9]{7}$",
+      "description": "Payer's tax identification number, NN-NNNNNNN.",
+      "x-labels": ["Payer TIN"]
+    },
+    "recipient_name": {"type": "string", "x-labels": ["Recipient name", "Recipient"]},
+    "recipient_tin": {
+      "type": "string",
+      "pattern": "^([*]{3}-[*]{2}|[0-9]{3}-[0-9]{2})-[0-9]{4}$",
+      "description": "Recipient's tax identification number, usually masked.",
+      "x-labels": ["Recipient TIN"]
+    },
+    "compensation": {
+      "type": "number",
+      "minimum": 0,
+      "x-labels": ["Nonemployee compensation", "Compensation"]
+    },
+    "federal_tax_withheld": {
+      "type": "number",
+      "minimum": 0,
+      "x-labels": ["Federal income tax withheld", "Federal tax withheld"]
+    },
+    "state": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$",
+      "description": "Two-letter state code.",
+      "x-labels": ["State"]
+    },
+    "corrected": {
+      "type": "boolean",
+      "description": "Whether the CORRECTED box is checked.",
+      "x-labels": ["Corrected"]
+    }
+  }
+}

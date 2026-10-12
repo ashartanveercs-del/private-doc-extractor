@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "private-doc-extractor"
+version = "0.1.0"
+description = "Document-to-JSON extraction with privacy tiers (cloud, your own cloud OCR, fully local), text-layer-first parsing, schema-strict output, model escalation and an accuracy/cost benchmark."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Ashar Tanveer" }]
+keywords = ["document-ai", "ocr", "pdf", "information-extraction", "json-schema", "privacy", "llm"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing",
+]
+dependencies = [
+    "pdfplumber>=0.11",
+    "pillow>=10.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+privdoc = "privdoc.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/privdoc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "tesseract: runs the real tesseract binary (skipped when it is not installed)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

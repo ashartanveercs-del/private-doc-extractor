@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Support ticket",
+  "description": "A printed customer support ticket from a fictional repair shop.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ticket_id", "opened", "customer", "priority"],
+  "properties": {
+    "ticket_id": {
+      "type": "string",
+      "pattern": "^TCK-[0-9]{5}$",
+      "x-labels": ["Ticket", "Ticket ID"]
+    },
+    "opened": {"type": "string", "format": "date", "x-labels": ["Opened"]},
+    "customer": {"type": "string", "x-labels": ["Customer"]},
+    "email": {"type": "string", "format": "email", "x-labels": ["Email"]},
+    "priority": {
+      "type": "string",
+      "enum": ["low", "normal", "high", "urgent"],
+      "x-labels": ["Priority"]
+    },
+    "device": {"type": "string", "x-labels": ["Device"]},
+    "warranty": {"type": "boolean", "x-labels": ["Under warranty"]},
+    "estimate": {"type": "number", "minimum": 0, "x-labels": ["Estimate"]}
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Invoice",
+  "description": "A bill from a supplier to a customer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["vendor_name", "invoice_number", "invoice_date", "total"],
+  "properties": {
+    "vendor_name": {
+      "type": "string",
+      "description": "Business that issued the invoice and should be paid.",
+      "x-labels": ["Payable to", "Vendor", "From"]
+    },
+    "invoice_number": {
+      "type": "string",
+      "description": "Invoice identifier exactly as printed.",
+      "x-labels": ["Invoice #", "Invoice number", "Invoice no."]
+    },
+    "invoice_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the invoice was issued.",
+      "x-labels": ["Invoice date", "Date"]
+    },
+    "due_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date payment is due.",
+      "x-labels": ["Due date", "Payment due"]
+    },
+    "po_number": {
+      "type": "string",
+      "description": "The customer's purchase order number, if printed.",
+      "x-labels": ["PO number", "PO #", "Purchase order"]
+    },
+    "customer_name": {
+      "type": "string",
+      "description": "Who the invoice is addressed to.",
+      "x-labels": ["Bill to", "Customer"]
+    },
+    "subtotal": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Sum of the line items before tax.",
+      "x-labels": ["Subtotal"]
+    },
+    "tax": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Tax amount.",
+      "x-labels": ["Sales tax", "Tax"]
+    },
+    "total": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Amount due, including tax.",
+      "x-labels": ["Total due", "Amount due", "Total"]
+    },
+    "line_items": {
+      "type": "array",
+      "description": "One entry per billed line.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description", "quantity", "unit_price", "amount"],
+        "properties": {
+          "description": {"type": "string", "x-labels": ["Description", "Item"]},
+          "quantity": {"type": "number", "minimum": 0, "x-labels": ["Qty", "Quantity"]},
+          "unit_price": {"type": "number", "x-labels": ["Unit price", "Rate", "Price"]},
+          "amount": {"type": "number", "x-labels": ["Amount", "Line total"]}
+        }
+      }
+    }
+  }
+}

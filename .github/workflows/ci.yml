@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests scripts examples
+      - run: pytest -q
+
+  ocr:
+    # Real Tesseract: the integration tests, then the local-tier benchmark on synthetic documents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+      - run: pip install -e ".[dev]"
+      - run: pytest -q -m tesseract
+      - run: privdoc bench --tier local --per-kind 2 --json bench-results.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-local-tesseract
+          path: bench-results.json

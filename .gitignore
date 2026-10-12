@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.env
+# generated samples, benchmark output and downloaded datasets never belong in the repo
+out/
+bench-results*.json
+datasets/

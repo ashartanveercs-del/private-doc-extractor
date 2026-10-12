@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Receipt",
+  "description": "A point-of-sale receipt.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["merchant_name", "date", "total"],
+  "properties": {
+    "merchant_name": {
+      "type": "string",
+      "description": "Store or business name.",
+      "x-labels": ["Store", "Merchant"]
+    },
+    "receipt_number": {
+      "type": "string",
+      "description": "Receipt or transaction number.",
+      "x-labels": ["Receipt #", "Receipt no.", "Transaction"]
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of purchase.",
+      "x-labels": ["Date"]
+    },
+    "time": {
+      "type": "string",
+      "pattern": "^[0-2]?[0-9]:[0-5][0-9]$",
+      "description": "Time of purchase, 24-hour HH:MM.",
+      "x-labels": ["Time"]
+    },
+    "subtotal": {"type": "number", "minimum": 0, "x-labels": ["Subtotal"]},
+    "tax": {"type": "number", "minimum": 0, "x-labels": ["Tax"]},
+    "tip": {"type": "number", "minimum": 0, "x-labels": ["Tip", "Gratuity"]},
+    "total": {"type": "number", "minimum": 0, "x-labels": ["Total"]},
+    "payment_method": {
+      "type": "string",
+      "enum": ["cash", "card", "other"],
+      "description": "How the purchase was paid.",
+      "x-labels": ["Payment", "Paid by"]
+    },
+    "card_last4": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$",
+      "description": "Last four digits of the card, if a card was used.",
+      "x-labels": ["Card ending", "Card #"]
+    }
+  }
+}
