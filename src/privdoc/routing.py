@@ -3,9 +3,12 @@
 The rules, in order:
 
 1. ``force_ocr``                                   -> OCR
-2. one image covers most of the page (>= 60 %)    -> OCR. This catches "searchable" scans: a
-   copier adds an invisible OCR layer that holds the printed labels but not what was
-   handwritten or stamped, so trusting that layer silently drops the values.
+2. one image covers most of the page (>= 60 %)    -> OCR, unless most of the text layer is
+   painted on top of that image. This catches "searchable" scans: a copier adds an OCR layer
+   that holds the printed labels but not what was handwritten or stamped, so trusting it
+   silently drops the values. That layer is invisible (text render mode 3) or hidden under the
+   page image. Typed text drawn over a full-page background or letterhead image is visible, so
+   such a page keeps its exact, free text layer.
 3. a real text layer (>= 30 characters)            -> text layer (free, exact)
 4. little or no text, but images                   -> OCR
 5. no text and no images, but vector drawing       -> OCR (outlined text, signatures, forms)
@@ -17,6 +20,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+
+# How much of a text layer must be painted on top of a page-sized image for the page to keep
+# its text layer: all of it for typed text over a background, none of it for a copier's layer.
+VISIBLE_SHARE = 0.5
 
 
 class Route(StrEnum):
@@ -39,6 +46,9 @@ class PageFacts:
     image_cover: float = 0.0  # share of the page covered by its largest image
     image_count: int = 0
     has_vector_ink: bool = False
+    # share of the text layer's characters actually painted on top (not invisible, not under a
+    # later image); None when it was not measured
+    visible_text_share: float | None = None
 
 
 def route_page(facts: PageFacts, rules: RoutingRules) -> tuple[Route, str]:
@@ -46,9 +56,18 @@ def route_page(facts: PageFacts, rules: RoutingRules) -> tuple[Route, str]:
     if rules.force_ocr:
         return Route.OCR, "OCR forced"
     if facts.image_count and facts.image_cover >= rules.scan_cover:
-        detail = f" (ignoring its {chars}-character text layer)" if chars else ""
-        return Route.OCR, (f"an image covers {facts.image_cover:.0%} of the page: treated as a "
-                           f"scan{detail}")
+        cover, shown = f"{facts.image_cover:.0%}", facts.visible_text_share
+        if chars >= rules.min_text_chars and shown is not None and shown >= VISIBLE_SHARE:
+            return Route.TEXT, (f"text layer with {chars} characters, painted over an image "
+                                f"that covers {cover} of the page")
+        if not chars:
+            detail = ""
+        elif shown is None:
+            detail = f" (ignoring its {chars}-character text layer)"
+        else:
+            detail = (f" (its {chars}-character text layer is mostly invisible or under the "
+                      "image)")
+        return Route.OCR, f"an image covers {cover} of the page: treated as a scan{detail}"
     if chars >= rules.min_text_chars:
         return Route.TEXT, f"text layer with {chars} characters"
     if facts.image_count:

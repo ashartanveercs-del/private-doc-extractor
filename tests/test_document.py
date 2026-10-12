@@ -1,5 +1,6 @@
 import hashlib
 import io
+from dataclasses import replace
 
 import pytest
 from PIL import Image
@@ -28,6 +29,19 @@ def test_a_page_with_a_real_text_layer_is_read_for_free():
 def test_a_searchable_scan_is_ocred_even_though_it_has_text():
     route, reason = route_page(PageFacts(1, TEXT, image_cover=0.95, image_count=1), RULES)
     assert route is Route.OCR and "95%" in reason
+
+
+def test_typed_text_painted_over_a_full_page_background_stays_on_the_text_layer():
+    facts = PageFacts(1, TEXT, image_cover=1.0, image_count=1, visible_text_share=1.0)
+    route, reason = route_page(facts, RULES)
+    assert route is Route.TEXT and "painted over an image" in reason and "100%" in reason
+
+
+@pytest.mark.parametrize("share", [0.0, 0.2])
+def test_a_text_layer_that_is_mostly_hidden_behind_a_page_image_is_ocred(share):
+    facts = PageFacts(1, TEXT, image_cover=1.0, image_count=1, visible_text_share=share)
+    route, reason = route_page(facts, RULES)
+    assert route is Route.OCR and "invisible or under the image" in reason
 
 
 def test_a_typed_page_with_a_small_logo_stays_on_the_text_layer():
@@ -75,6 +89,29 @@ def test_scanned_pdf_facts_and_render():
         assert facts.text == "" and facts.image_cover == pytest.approx(1.0)
         image = doc.render(1, dpi=100)
         assert image.mode == "L" and image.size == (850, 1100)
+
+
+BACKGROUND = Image.new("L", (850, 1100), 245)  # a pale, full-page letterhead or watermark
+TYPED = [TextRun(72, 100 + 20 * i, f"Line {i}: Invoice #: INV-{1040 + i}") for i in range(5)]
+
+
+@pytest.mark.parametrize("page, visible", [
+    (PdfPage(runs=TYPED, image=BACKGROUND), 1.0),                                  # typed
+    (PdfPage(runs=[replace(r, invisible=True) for r in TYPED], image=BACKGROUND), 0.0),  # copier
+    (PdfPage(runs=TYPED, image=BACKGROUND, image_over_text=True), 0.0),            # under it
+])
+def test_the_share_of_text_painted_on_top_of_a_page_image_is_measured(page, visible):
+    with open_document(write_pdf([page])) as doc:
+        facts = doc.facts(1)
+    assert facts.image_cover == pytest.approx(1.0) and "INV-1040" in facts.text
+    assert facts.visible_text_share == pytest.approx(visible)
+    expected = Route.TEXT if visible else Route.OCR
+    assert route_page(facts, RULES)[0] is expected
+
+
+def test_pages_without_images_do_not_need_the_measurement():
+    with open_document(write_pdf([PdfPage(runs=TYPED)])) as doc:
+        assert doc.facts(1).visible_text_share is None
 
 
 def test_blank_and_vector_only_pages():

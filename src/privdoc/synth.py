@@ -88,6 +88,7 @@ class PdfPage:
     width: float = PAGE_W
     height: float = PAGE_H
     drawing: bytes = b""  # raw content-stream operators, e.g. b"72 600 200 40 re S"
+    image_over_text: bool = False  # paint the image last, hiding the text (as some scanners do)
 
 
 def _layout(lines: list[Line]) -> tuple[list[TextRun], float]:
@@ -123,7 +124,7 @@ def write_pdf(pages: list[PdfPage]) -> bytes:
                b"/Encoding /WinAnsiEncoding >>")
     kids = []
     for page in pages:
-        ops, xobjects = [], b""
+        ops, xobjects, paint_image = [], b"", b""
         if page.image is not None:
             image = page.image.convert("L")
             buf = io.BytesIO()
@@ -132,7 +133,9 @@ def write_pdf(pages: list[PdfPage]) -> bytes:
                               b"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /DCTDecode >>"
                               % image.size, buf.getvalue()))
             xobjects = b" /XObject << /Im1 %d 0 R >>" % img
-            ops.append(b"q %.2f 0 0 %.2f 0 0 cm /Im1 Do Q" % (page.width, page.height))
+            paint_image = b"q %.2f 0 0 %.2f 0 0 cm /Im1 Do Q" % (page.width, page.height)
+        if paint_image and not page.image_over_text:
+            ops.append(paint_image)
         if page.drawing:
             ops.append(page.drawing)
         for run in page.runs:
@@ -140,6 +143,8 @@ def write_pdf(pages: list[PdfPage]) -> bytes:
             ops.append(b"BT %s/F%d %.1f Tf %.2f %.2f Td %s Tj ET" % (
                 mode, 2 if run.bold else 1, run.size, run.x, page.height - run.y,
                 _pdf_string(run.text)))
+        if paint_image and page.image_over_text:
+            ops.append(paint_image)
         content = add(_stream(b"<< >>", b"\n".join(ops)))
         kids.append(add(
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %.2f %.2f] /Resources << /Font << "

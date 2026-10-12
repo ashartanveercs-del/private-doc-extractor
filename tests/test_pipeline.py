@@ -125,6 +125,20 @@ def test_a_searchable_scan_is_ocred_instead_of_trusting_its_label_only_text_laye
     assert_matches_truth(result, doc)
 
 
+def test_a_typed_invoice_over_a_full_page_background_is_read_from_its_text_layer():
+    doc = make_doc("invoice", 3)
+    background = Image.new("L", (850, 1100), 245)  # a pale letterhead behind every page
+    data = write_pdf([PdfPage(runs=[TextRun(72, 60 + 18 * i, line.text)
+                                    for i, line in enumerate(lines)], image=background)
+                      for lines in doc.pages])
+    p, _ = pipeline(tesseract_found=False)  # not even an OCR engine to fall back on
+    result = p.extract(data, "invoice", LOCAL)
+    assert [page.route for page in result.pages] == ["text-layer", "text-layer"]
+    assert all("painted over an image" in page.reason for page in result.pages)
+    assert result.complete and result.valid
+    assert_matches_truth(result, doc)
+
+
 def test_blank_pages_are_skipped_without_making_the_document_incomplete():
     data = write_pdf([PdfPage(runs=[TextRun(72, 100, "Store: Corner Bean Cafe"),
                                     TextRun(72, 120, "Date: 2026-03-14"),

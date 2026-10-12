@@ -6,7 +6,7 @@ own cloud account, or nowhere at all.
 
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-601%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-609%20passed-brightgreen)
 
 ```text
 $ privdoc extract receipt.pdf --schema receipt --tier local        # page 1 typed, page 2 scanned
@@ -37,7 +37,7 @@ the document", and nothing left the machine (exit code 1: read, but incomplete).
 
 | | |
 |---|---|
-| **Text layer first** | Every PDF page is routed on its own. Real text layers are read for free; only pages that are images go to OCR. A "searchable scan" (an invisible OCR layer over a page image) is OCR'd anyway, because copier text layers drop handwriting. |
+| **Text layer first** | Every PDF page is routed on its own. Real text layers are read for free; only pages that are images go to OCR. A "searchable scan" (an invisible OCR layer over a page image) is OCR'd anyway, because copier text layers drop handwriting; typed text painted over a full-page background or letterhead image keeps its text layer. |
 | **Privacy tiers that are enforced** | `cloud`, `own-cloud` or `local` (the default). The plan only uses engines the tier allows (asking for another one is refused before the file is opened), and every request that could carry document content passes one gate that admits only the exact origins the plan registered. In `local` nothing is sent; the tests prove it with a socket-level tripwire. |
 | **Schema-strict JSON** | A JSON Schema subset that is enforced completely: an unsupported keyword is refused, not ignored. Model output is coerced, validated, repaired once, and only valid values ever reach `data`. |
 | **Honest field statuses** | `found`, `unreadable` (with what could be made out), `invalid` (with the raw value), `not_found` (every page was read) and `not_checked` (some pages were not). |
@@ -46,7 +46,7 @@ the document", and nothing left the machine (exit code 1: read, but incomplete).
 | **Content-addressed cache** | Keys hash the document, the page, the engine's fingerprint, the schema and the prompt version; failed readings are never cached. |
 | **SSRF-safe links** | DNS is resolved once and the connection pinned to the checked address; every redirect hop is re-checked; IPv4 hidden in IPv6 and numeric host tricks are refused; size, time and content type are capped. |
 | **Benchmark** | Synthetic invoices (their line-item columns printed in varied orders), receipts and tax forms generated in code in five renderings (typed, scanned, searchable scan, mixed, phone photo), plus an optional FUNSD download. Reports field accuracy, hallucination rate, cost and seconds per page. |
-| **Tested offline** | 601 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
+| **Tested offline** | 609 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
 
 ## Architecture
 
@@ -100,10 +100,13 @@ Main modules: [`pipeline.py`](src/privdoc/pipeline.py) (orchestration),
 **1. Text layers lie.** A copier's "searchable PDF" puts an invisible OCR layer over the page
 image. It usually holds the printed labels and misses what was handwritten or stamped, so
 trusting it silently loses exactly the values you wanted. A page where one image covers at least
-60% is treated as a scan whatever its text layer says; a typed page with a small logo stays on
-the free path; a page with only vector drawing (outlined text) is OCR'd rather than called blank;
-a truly blank page is skipped without making the document "incomplete"
-([`routing.py`](src/privdoc/routing.py)).
+60% is treated as a scan unless most of its text is painted on top of that image: the page's
+drawing operations are replayed, and a copier's layer is drawn invisibly (render mode 3) or
+hidden under the image, while typed text over a full-page background or letterhead image is
+visible and stays on the free, exact path ([`document.py`](src/privdoc/document.py)). A typed
+page with a small logo stays on the free path too; a page with only vector drawing (outlined
+text) is OCR'd rather than called blank; a truly blank page is skipped without making the
+document "incomplete" ([`routing.py`](src/privdoc/routing.py)).
 
 **2. "Not found" is a claim about the whole document.** If page 2 failed (an API error, a
 timeout, no OCR engine, outside `--pages`, over the page cap), a field missing from page 1 is
@@ -315,7 +318,7 @@ they depend on the model and its price, so measure them with your own key.
 ## Testing
 
 ```bash
-pytest                  # 601 passed, 4 skipped in 20-35 s; no network, no keys
+pytest                  # 609 passed, 4 skipped in 20-35 s; no network, no keys
 ruff check src tests scripts examples
 pytest -m tesseract     # the real Tesseract binary (skipped when it is not installed)
 ```

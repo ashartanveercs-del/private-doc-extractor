@@ -17,6 +17,10 @@ import warnings
 from typing import Protocol
 
 import pdfplumber
+from pdfminer.pdfdevice import PDFTextDevice
+from pdfminer.pdffont import PDFUnicodeNotDefined
+from pdfminer.pdfinterp import PDFPageInterpreter
+from pdfminer.utils import apply_matrix_rect
 from PIL import Image, ImageOps
 
 from .errors import DocumentError, UsageError
@@ -24,6 +28,51 @@ from .routing import PageFacts
 from .sniff import IMAGE_KINDS, sniff
 
 MAX_RENDER_PIXELS = 40_000_000
+_INVISIBLE_MODES = frozenset({3, 7})  # text render modes that paint nothing (3: invisible, 7: clip)
+
+
+class _PaintedText(PDFTextDevice):
+    """Replays a page's drawing operations to see which characters really end up visible.
+
+    pdfplumber reports every character of the text layer, painted or not. A copier's searchable
+    PDF draws its OCR text in an invisible render mode over the page image, and some scanners
+    hide that text under the image instead; typed text drawn over a background image is
+    visible. A character counts as visible when it is drawn in a painting mode and no image is
+    drawn over its position afterwards.
+    """
+
+    def __init__(self, rsrcmgr) -> None:
+        super().__init__(rsrcmgr)
+        self._mode = 0
+        self.chars: list[tuple[float, float, bool]] = []  # origin x, y; painted?
+        self.images: list[tuple[int, tuple[float, float, float, float]]] = []  # after char n
+
+    def render_string(self, textstate, seq, ncs, graphicstate) -> None:
+        self._mode = textstate.render
+        super().render_string(textstate, seq, ncs, graphicstate)
+
+    def render_char(self, matrix, font, fontsize, scaling, rise, cid, ncs,
+                    graphicstate) -> float:
+        try:
+            text = font.to_unichr(cid)
+        except PDFUnicodeNotDefined:
+            text = "?"
+        if text.strip():
+            self.chars.append((matrix[4], matrix[5], self._mode not in _INVISIBLE_MODES))
+        return font.char_width(cid) * fontsize * scaling  # the advance, as pdfminer computes it
+
+    def render_image(self, name, stream) -> None:
+        self.images.append((len(self.chars), apply_matrix_rect(self.ctm, (0, 0, 1, 1))))
+
+    def visible_share(self) -> float | None:
+        if not self.chars:
+            return None
+        visible = 0
+        for index, (x, y, painted) in enumerate(self.chars):
+            covered = any(index < drawn_after and x0 <= x <= x1 and y0 <= y <= y1
+                          for drawn_after, (x0, y0, x1, y1) in self.images)
+            visible += painted and not covered
+        return visible / len(self.chars)
 
 
 class Document(Protocol):
@@ -92,12 +141,23 @@ class PdfDocument(_Base):
                     top, bottom = max(0.0, float(image["top"])), min(float(page.height),
                                                                      float(image["bottom"]))
                     covers.append(max(0.0, x1 - x0) * max(0.0, bottom - top) / area)
+                visible = self._visible_share(page) if covers and text.strip() else None
                 self._facts[number] = PageFacts(
                     number=number, text=text, image_cover=round(max(covers, default=0.0), 4),
                     image_count=len(covers),
-                    has_vector_ink=bool(page.rects or page.lines or page.curves))
+                    has_vector_ink=bool(page.rects or page.lines or page.curves),
+                    visible_text_share=visible)
                 page.close()
             return self._facts[number]
+
+    def _visible_share(self, page) -> float | None:
+        """How much of a page's text is painted on top of its images (pages with both only)."""
+        device = _PaintedText(self._pdf.rsrcmgr)
+        try:
+            PDFPageInterpreter(self._pdf.rsrcmgr, device).process_page(page.page_obj)
+        except Exception:  # a damaged content stream: unknown, so the page is routed as a scan
+            return None
+        return device.visible_share()
 
     def render(self, number: int, dpi: int) -> Image.Image:
         self._check(number)
