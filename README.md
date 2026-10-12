@@ -6,7 +6,7 @@ own cloud account, or nowhere at all.
 
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-542%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-545%20passed-brightgreen)
 
 ```text
 $ privdoc extract receipt.pdf --schema receipt --tier local        # page 1 typed, page 2 scanned
@@ -46,7 +46,7 @@ the document", and nothing left the machine (exit code 1: read, but incomplete).
 | **Content-addressed cache** | Keys hash the document, the page, the engine's fingerprint, the schema and the prompt version; failed readings are never cached. |
 | **SSRF-safe links** | DNS is resolved once and the connection pinned to the checked address; every redirect hop is re-checked; IPv4 hidden in IPv6 and numeric host tricks are refused; size, time and content type are capped. |
 | **Benchmark** | Synthetic invoices, receipts and tax forms generated in code in five renderings (typed, scanned, searchable scan, mixed, phone photo), plus an optional FUNSD download. Reports field accuracy, hallucination rate, cost and seconds per page. |
-| **Tested offline** | 542 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
+| **Tested offline** | 545 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
 
 ## Architecture
 
@@ -110,19 +110,24 @@ timeout, no OCR engine, outside `--pages`, over the page cap), a field missing f
 `not_checked`, listed with the unread pages, and `complete` is false. `not_found` is only
 reported when every page was actually read.
 
-**3. A stronger model can be wrong in a new way.** Escalation re-reads one page, and the two
-readings are merged per field ([`fields.py`](src/privdoc/fields.py)):
+**3. A stronger model can be wrong in a new way.** Escalation re-reads a whole page because one
+field on it was doubtful, so every field on that page is read twice, and the two readings are
+merged per field ([`fields.py`](src/privdoc/fields.py)). "Trusted" means grounded in the page
+text first, then confidence:
 
 | First reading | Stronger reading | Result |
 |---|---|---|
-| anything | valid value | the stronger value |
+| invalid, unreadable or nothing | valid value | the stronger value |
+| valid value | valid value, at least as trusted | the stronger value |
+| valid value | valid value, less trusted | the first value (a stronger model can invent one) |
 | valid value | invalid value | the first value |
 | anything | unreadable | unreadable, first value kept as `partial` |
 | confident, grounded value | nothing | the first value (a stronger model can miss one too) |
 | low-confidence or unreadable | nothing | unreadable with `partial`: ask a human |
 
-A parametrized test checks all 48 combinations: anything seen on the first pass is never turned
-into "not on the document".
+When both readings are valid and differ, the one not chosen is listed under `alternatives`. A
+parametrized test checks all 48 combinations: anything seen on the first pass is never turned
+into "not on the document", and a value is never traded for a less trusted one.
 
 **4. Valid is not the same as true.** A well-formed, schema-valid value can still be invented.
 A value is grounded when the evidence quoted for it occurs verbatim in the page text and the
@@ -295,7 +300,7 @@ cloud model depend on the model and its price, so measure them with your own key
 ## Testing
 
 ```bash
-pytest                  # 542 passed, 4 skipped in 20-35 s; no network, no keys
+pytest                  # 545 passed, 4 skipped in 20-35 s; no network, no keys
 ruff check src tests scripts examples
 pytest -m tesseract     # the real Tesseract binary (skipped when it is not installed)
 ```

@@ -44,6 +44,7 @@ class Candidate:
     grounded: bool | None = None
     issues: tuple[str, ...] = ()
     escalated: bool = False
+    alternatives: tuple[Candidate, ...] = ()  # other readings of this field on the same page
 
     @property
     def usable(self) -> bool:
@@ -113,22 +114,44 @@ def _partial_of(c: Candidate) -> str | None:
     return None
 
 
+def _trust(c: Candidate) -> tuple[bool, int]:
+    """How far a usable reading can be trusted: grounded in the page text first, then the
+    confidence (an ungrounded value is always low confidence)."""
+    return c.grounded is not False, CONFIDENCE_RANK[c.confidence]
+
+
+def _keeping(winner: Candidate, loser: Candidate) -> Candidate:
+    """The winner, with the losing reading kept as an alternative when it says something else."""
+    if not loser.usable or _same_value_key(loser.value) == _same_value_key(winner.value):
+        return winner
+    return replace(winner, alternatives=(*winner.alternatives, loser, *loser.alternatives))
+
+
 def merge_escalated(first: Candidate | None, second: Candidate | None) -> Candidate | None:
     """Combine a first reading with a stronger engine's re-reading of the same page.
 
-    Trust the stronger engine, except that a disagreement must never become "not on the
-    document": a stronger model can miss a value too.
-      * second reading valid                      -> take it
+    Escalation re-reads a whole page because one field on it was doubtful, so the other fields
+    on that page are read again too. The stronger engine is preferred, but it can be wrong in a
+    new way: it can miss a value, and it can invent one. So:
+      * second valid, first not valid             -> take the second
+      * both valid, second at least as trusted    -> take the second (first kept as alternative)
+      * both valid, second less trusted           -> keep the first (second kept as alternative)
       * second reading invalid, first valid       -> keep the first
       * second says unreadable                    -> unreadable, first reading as the partial
       * second found nothing, first was confident -> keep the first
       * second found nothing, first saw something -> unreadable with the first as partial: ask
+    "Trusted" means grounded in the page text, then confidence: a valid value that cannot be
+    traced to the page never replaces one that can.
     """
     if second is None:
         return first
     second = replace(second, escalated=True)
-    if first is None or second.usable:
+    if first is None:
         return second
+    if second.usable:
+        if not first.usable or _trust(second) >= _trust(first):
+            return _keeping(second, first)
+        return _keeping(replace(first, escalated=True), second)
     if second.value is not None:  # the stronger reading is invalid
         return replace(first, escalated=True) if first.usable else second
     if second.unreadable:
@@ -201,7 +224,8 @@ def resolve_field(spec: FieldSpec, candidates: Collection[Candidate | None],
                                           -_page_order(c)))
         seen = {_same_value_key(best.value)}
         alternatives = []
-        for c in sorted(usable, key=_page_order):
+        readings = usable + [alt for c in usable for alt in c.alternatives if alt.usable]
+        for c in sorted(readings, key=_page_order):
             key = _same_value_key(c.value)
             if key not in seen:
                 seen.add(key)

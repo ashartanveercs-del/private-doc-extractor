@@ -248,6 +248,25 @@ def test_a_confident_value_survives_a_stronger_model_that_misses_it():
     assert result.valid
 
 
+def test_re_reading_a_page_never_trades_a_trusted_value_for_a_doubtful_one():
+    doc = make_doc("invoice", 5)
+
+    def page(model, n):
+        if n == 2 and model == "small":  # one doubtful field sends page 2 to the larger model
+            return oracle_page(doc, "scan", 2, total=fval(doc.truth["total"], confidence="low"))
+        if n == 2 and model == "large":  # which reads the total but invents a subtotal
+            return oracle_page(doc, "scan", 2, subtotal=fval(9999.0, confidence="high"))
+        return oracle_page(doc, "scan", n)
+
+    p, _ = pipeline(LLM_ENV, llm=FakeLLM(page=page))
+    result = p.extract(render(doc, "scan").data, "invoice", CLOUD)
+    subtotal = result.fields["subtotal"]
+    assert same(subtotal.value, doc.truth["subtotal"]) and subtotal.source == "vision-llm:small"
+    assert subtotal.alternatives == [{"value": 9999.0, "page": 2, "confidence": "low"}]
+    assert result.fields["total"].source == "vision-llm:large" and result.valid
+    assert_matches_truth(result, doc)
+
+
 def test_a_failed_page_is_retried_with_the_stronger_model():
     doc = make_doc("invoice", 5)
     llm = FakeLLM(page=lambda model, n: 500 if (model, n) == ("small", 2)

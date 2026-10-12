@@ -107,6 +107,23 @@ def test_an_invalid_second_reading_does_not_replace_a_valid_first_one():
     assert merged.value == "INV-1042"
 
 
+def test_a_less_trusted_second_reading_never_replaces_a_trusted_first_one():
+    # valid is not the same as true: the stronger model's value is not on the page
+    merged = merge_escalated(cand("INV-1001", "high"),
+                             cand("INV-9999", "low", grounded=False, source="model-b"))
+    assert (merged.value, merged.source, merged.escalated) == ("INV-1001", "model-a", True)
+    result = resolve_field(SCHEMA.field("invoice_number"), [merged], unread_pages=[])
+    assert (result.status, result.value, result.confidence) == ("found", "INV-1001", "high")
+    assert result.alternatives == [{"value": "INV-9999", "page": 1, "confidence": "low"}]
+
+
+def test_a_replaced_first_value_is_kept_as_an_alternative():
+    merged = merge_escalated(cand("INV-1O42", "low"), cand("INV-1042", source="model-b"))
+    result = resolve_field(SCHEMA.field("invoice_number"), [merged], unread_pages=[])
+    assert (result.value, result.source) == ("INV-1042", "model-b")
+    assert result.alternatives == [{"value": "INV-1O42", "page": 1, "confidence": "low"}]
+
+
 def test_missing_sides():
     assert merge_escalated(None, None) is None
     assert merge_escalated(None, cand("INV-1042")).value == "INV-1042"
@@ -119,11 +136,22 @@ SECONDS = [cand("B", "high"), cand("B", "low"), cand(None), cand(None, unreadabl
            cand("B", issues=["x"]), None]
 
 
+def trust(c):
+    return (c.grounded is not False, ["none", "low", "medium", "high"].index(c.confidence))
+
+
 @pytest.mark.parametrize("first, second", list(itertools.product(FIRSTS, SECONDS)))
 def test_escalation_never_turns_something_seen_into_not_on_the_document(first, second):
     merged = merge_escalated(first, second)
     if first is not None and first.seen:
         assert merged is not None and merged.seen
+    if first is not None and first.usable and merged is not None and merged.usable:
+        # a value is never traded for a less trusted one (ungrounded, or lower confidence)
+        assert trust(merged) >= trust(first)
+    if first is not None and second is not None and first.usable and second.usable:
+        # and neither reading disappears: the one not chosen is listed as an alternative
+        kept = {merged.value} | {alt.value for alt in merged.alternatives}
+        assert {first.value, second.value} <= kept
 
 
 # -- resolving one field across pages ----------------------------------------------------------
