@@ -383,6 +383,11 @@ pytest -m tesseract     # the real Tesseract binary (skipped when it is not inst
 - Local text extraction for Office documents
 - A batch mode and a small HTTP service
 
+## Secret scanning
+
+[Full-history audit and secret-scan CI](docs/SECURITY-AUDIT.md). Configuration examples and
+synthetic fixtures were reviewed before publication; new credential findings fail the gate.
+
 ## License
 
 MIT
