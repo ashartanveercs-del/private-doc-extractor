@@ -1,12 +1,31 @@
 # private-doc-extractor
 
-**Turn PDFs, scans and phone photos into JSON that validates against your schema, and decide
-where the document is allowed to go while you do it:** to a cloud vision model, to OCR in your
-own cloud account, or nowhere at all.
+**Document-to-JSON extraction that makes privacy and uncertainty explicit.**
+Read PDFs, scans and photos against a strict schema with a local, own-cloud or cloud execution
+plan. Route each page separately, escalate only doubtful readings, and distinguish a missing
+field from a field on a page that could not be read.
 
+[![CI](https://github.com/ashartanveercs-del/private-doc-extractor/actions/workflows/ci.yml/badge.svg)](https://github.com/ashartanveercs-del/private-doc-extractor/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
-![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-612%20passed-brightgreen)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+[Quick start](#quick-start) | [Architecture](#architecture) | [Benchmark](#benchmark) | [Verification & proof map](docs/VERIFICATION.md) | [Security boundaries](#security-notes)
+
+- **Privacy enforced twice:** engine planning checks the tier; a send-time gate checks approved origins. Local-mode tests fail on socket or DNS access.
+- **Grounded, schema-strict results:** unsupported schema keywords are rejected; fields carry status, page, evidence and confidence. Escalation preserves more trusted values.
+- **An honest benchmark:** generated documents carry independent ground truth, including absent fields. Accuracy, hallucinations, unread pages and cost are reported separately.
+
+## Try it offline
+
+```bash
+python -m pip install -e ".[dev]"
+python examples/quickstart.py
+python examples/custom_schema.py
+```
+
+No account or API key is needed. The demo generates a typed invoice and a scanned copy in
+`out/`. Without the optional Tesseract binary, the typed invoice validates and the scan reports
+`not_checked`; installing Tesseract enables local OCR. A partial reading looks like this:
 
 ```text
 $ privdoc extract receipt.pdf --schema receipt --tier local        # page 1 typed, page 2 scanned
@@ -44,7 +63,7 @@ the document", and nothing left the machine (exit code 1: read, but incomplete).
 | **Grounding** | A value must be traceable to verbatim text on its page, as whole words (a fragment of a longer word does not count). Ungrounded values are downgraded to low confidence and re-checked. |
 | **Per-page escalation** | Only failed or doubtful pages are re-read by the next, stronger engine (a larger model, or Tesseract at 400 dpi on a cleaned image). The merge never turns something seen into "not on the document", and never trades a trusted value for a less trusted one. |
 | **Content-addressed cache** | Keys hash the document, the page, the engine's fingerprint, the schema and the prompt version; failed readings are never cached. |
-| **SSRF-safe links** | DNS is resolved once and the connection pinned to the checked address; every redirect hop is re-checked; IPv4 hidden in IPv6 and numeric host tricks are refused; size, time and content type are capped. |
+| **Checked URL fetches** | DNS is resolved once and the connection pinned to the checked address; every redirect hop is re-checked; IPv4 hidden in IPv6 and numeric host tricks are refused; size, time and content type are capped. |
 | **Benchmark** | Synthetic invoices (their line-item columns printed in varied orders), receipts and tax forms generated in code in five renderings (typed, scanned, searchable scan, mixed, phone photo), plus an optional FUNSD download. Reports field accuracy, hallucination rate, cost and seconds per page. |
 | **Tested offline** | 612 tests run with no network and no keys: the LLM, Cloud Vision and the Tesseract binary are faked, HTTP-level tests use a server on 127.0.0.1, and a suite-wide guard fails any test that reaches the internet. |
 
@@ -321,7 +340,7 @@ they depend on the model and its price, so measure them with your own key.
 ## Testing
 
 ```bash
-pytest                  # 612 passed, 4 skipped in 20-35 s; no network, no keys
+python -m pytest -q -ra  # 612 passed, 4 skipped in the dated Windows verification
 ruff check src tests scripts examples
 pytest -m tesseract     # the real Tesseract binary (skipped when it is not installed)
 ```
